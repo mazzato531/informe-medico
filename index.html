@@ -601,41 +601,48 @@ let _generandoPDF=false;
 async function descargarPDF(){
   if(_generandoPDF) return;
   _generandoPDF=true;
-  guardar();
-  // Contenedor de ancho fijo (780px) en el flujo normal del documento, oculto
-  // dentro de un envoltorio de altura 0. Debe estar en el flujo normal (no
-  // position:fixed) o html2canvas lo renderiza en blanco. Con windowWidth:820
-  // se fuerza a capturar los 780px completos incluso en telefonos angostos,
-  // asi el contenido (y el pie de pagina con la direccion) nunca se recorta.
-  const wrap=document.createElement('div');
-  wrap.style.cssText='position:absolute;left:0;top:0;height:0;overflow:hidden;';
-  const cont=document.createElement('div');
-  cont.className='pdf-page';
-  cont.style.cssText='width:780px;background:#ffffff;margin:0;';
-  cont.innerHTML=construirInforme();
-  wrap.appendChild(cont);
-  document.body.insertBefore(wrap,document.body.firstChild);
-  const nombre=($('nombrePaciente').value||'informe').replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ ]/g,'').trim().replace(/\s+/g,'_');
-  toast('Generando PDF...');
-  const opt={
-    margin:[10,8,12,8],
-    filename:`Informe_${nombre||'medico'}.pdf`,
-    image:{type:'jpeg',quality:0.98},
-    html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff',windowWidth:820,width:780,x:0,scrollX:0,scrollY:0},
-    jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
-    pagebreak:{mode:['css','legacy','avoid-all']}
-  };
+  let host=null;
   try{
-    // Esperar a que la firma (imagen) termine de cargar antes de renderizar
-    const imgs=cont.querySelectorAll('img');
-    await Promise.all(Array.from(imgs).map(im=>im.complete?Promise.resolve():new Promise(r=>{im.onload=im.onerror=r;})));
-    await new Promise(r=>setTimeout(r,150));
+    guardar();
+    host=document.createElement('div');
+    host.setAttribute('aria-hidden','true');
+    host.style.cssText='position:fixed;left:0;top:0;width:100vw;height:100vh;overflow:auto;z-index:-1;opacity:.01;pointer-events:none;background:#fff;';
+
+    const cont=document.createElement('div');
+    cont.className='pdf-page';
+    cont.style.cssText='width:780px;max-width:none;min-height:1px;background:#fff;margin:0;border:none;border-radius:0;box-sizing:border-box;';
+    cont.innerHTML=construirInforme();
+    host.appendChild(cont);
+    document.body.appendChild(host);
+
+    const nombre=($('nombrePaciente').value||'informe').replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ ]/g,'').trim().replace(/\s+/g,'_');
+    toast('Generando PDF...');
+
+    if(document.fonts && document.fonts.ready) await document.fonts.ready;
+    const imgs=Array.from(cont.querySelectorAll('img'));
+    await Promise.all(imgs.map(im=>{
+      if(im.complete && im.naturalWidth>0) return Promise.resolve();
+      return new Promise(resolve=>{ im.onload=resolve; im.onerror=resolve; setTimeout(resolve,3000); });
+    }));
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
+
+    const opt={
+      margin:[10,8,12,8],
+      filename:`Informe_${nombre||'medico'}.pdf`,
+      image:{type:'jpeg',quality:.95},
+      html2canvas:{scale:Math.min(2,window.devicePixelRatio||2),useCORS:true,allowTaint:true,backgroundColor:'#fff',width:780,windowWidth:780,x:0,y:0,scrollX:0,scrollY:0},
+      jsPDF:{unit:'mm',format:'a4',orientation:'portrait',compress:true},
+      pagebreak:{mode:['css','legacy']}
+    };
+
     await html2pdf().set(opt).from(cont).save();
-    toast('PDF descargado');
+    toast('PDF listo');
   }catch(e){
-    toast('Error al generar PDF');
+    console.error('Error generando PDF:',e);
+    toast('No se pudo generar el PDF. Intenta nuevamente.');
   }finally{
-    if(wrap.parentNode) wrap.parentNode.removeChild(wrap);
+    if(host && host.parentNode) host.parentNode.removeChild(host);
     _generandoPDF=false;
   }
 }
