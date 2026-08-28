@@ -637,8 +637,32 @@ async function descargarPDF(){
     const imgs=cont.querySelectorAll('img');
     await Promise.all(Array.from(imgs).map(im=>im.complete?Promise.resolve():new Promise(r=>{im.onload=im.onerror=r;})));
     await new Promise(r=>setTimeout(r,150));
-    await html2pdf().set(opt).from(cont).save();
-    toast('PDF descargado');
+    // Generamos el PDF como archivo (Blob) para poder compartirlo o descargarlo.
+    const blob=await html2pdf().set(opt).from(cont).outputPdf('blob');
+    const file=new File([blob],opt.filename,{type:'application/pdf'});
+    // En el telefono: usar el menu "Compartir" del sistema para enviar el PDF
+    // real (a WhatsApp, correo, etc). Asi se adjunta el archivo y NO el enlace
+    // de la pagina. Si no esta disponible, se descarga normalmente.
+    let compartido=false;
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      try{
+        await navigator.share({files:[file],title:opt.filename});
+        compartido=true;
+        toast('PDF listo para enviar');
+      }catch(err){
+        // El usuario cerro el menu de compartir: descargamos como respaldo.
+        if(err && err.name==='AbortError'){compartido=true;toast('Compartir cancelado');}
+      }
+    }
+    if(!compartido){
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;a.download=opt.filename;
+      document.body.appendChild(a);a.click();
+      document.body.removeChild(a);
+      setTimeout(()=>URL.revokeObjectURL(url),4000);
+      toast('PDF descargado');
+    }
   }catch(e){
     toast('Error al generar PDF');
   }finally{
